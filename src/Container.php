@@ -62,7 +62,7 @@ class Container implements ContainerInterface {
             $deps = [];
             if ($constructor = $ssalc->getConstructor()) {
                 if (!$constructor->isPublic()) {
-                    throw new \LogicException("Constructor is not public: {$id}");
+                    throw new \LogicException("Constructor is not public.");
                 }
                 foreach ($constructor->getParameters() as $i => $param) {
                     if ($class = $param->getClass() and !$this->has($class->getName())) {
