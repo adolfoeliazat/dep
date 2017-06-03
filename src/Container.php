@@ -47,18 +47,15 @@ class Container implements ContainerInterface {
             else {
                 $target = $id;
             }
-            if (!class_exists($target)) {
-                throw new \LogicException("Failed to autoload: {$id} === {$target}");
-            }
-            elseif (isset($this->autoStack[$id])) {
+            if (isset($this->autoStack[$id])) {
                 $keys = array_keys($this->autoStack);
                 $origin = array_search($id, $keys);
                 $trace = implode(' -> ', array_slice($keys, $origin));
-                throw new \LogicException("Circular dependency: {$trace} -> {$id} === {$target}");
+                throw new \LogicException("Circular dependency: {$trace} -> {$id}");
             }
-            $ssalc = new \ReflectionClass($target);
+            $ssalc = new \ReflectionClass($target); // throws
             if (!$ssalc->isInstantiable()) {
-                throw new \LogicException("Impossible to instantiate directly, an explicit mapping is required: {$id} === {$target}");
+                throw new \LogicException("Impossible to instantiate directly, a concrete mapping is required.");
             }
             $this->autoStack[$id] = $target;
             /** @var \Closure[] $deps */
@@ -67,16 +64,22 @@ class Container implements ContainerInterface {
                 if (!$constructor->isPublic()) {
                     throw new \LogicException("Constructor is not public: {$id}");
                 }
-                foreach ($constructor->getParameters() as $param) {
-                    if (!$param->allowsNull() and $class = $param->getClass() and !$this->has($class->getName())) {
+                foreach ($constructor->getParameters() as $i => $param) {
+                    if ($class = $param->getClass() and !$this->has($class->getName())) {
                         $deps[] = $this->autowire($class->getName());
+                    }
+                    elseif ($param->isDefaultValueAvailable()) {
+                        $deps[] = $param->getDefaultValue();
+                    }
+                    else {
+                        throw new \LogicException("A default constructor argument (parameter #{$i}) cannot be inferred, an explicit factory is required.");
                     }
                 }
             }
         }
         catch (\Exception $e) {
             $this->autoStack = [];
-            throw new NotFoundException("Error while autowiring: {$id} === {$target}", 0, $e);
+            throw new NotFoundException("Error while autowiring, see attached exception: {$id} === {$target}", 0, $e);
         }
         unset($this->autoStack[$id]);
         return $this->factories[$id] = function() use ($ssalc, $deps) {
@@ -95,8 +98,9 @@ class Container implements ContainerInterface {
      * @throws ContainerException
      */
     public function get ($id) {
+        $factory = $this->autowire($id);
         try {
-            return $this->autowire($id)->__invoke($this);
+            return $factory->__invoke($this);
         }
         catch (\Exception $e) {
             throw new ContainerException("Error while invoking the factory for: {$id}", 0, $e);
